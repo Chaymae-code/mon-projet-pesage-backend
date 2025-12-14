@@ -59,9 +59,14 @@ app.use(cors({
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:5175',
       'http://127.0.0.1:3000',
+      'http://127.0.0.1:5173',
       `http://${localIP}:3000`,
-      `http://10.24.144.46:3000`  // ← CHANGÉ ICI
+      `http://${localIP}:5173`,
+      `http://10.24.16.143:3000`,
+      `http://10.24.16.143:5173`
     ];
     
     // Si l'origine est dans la liste

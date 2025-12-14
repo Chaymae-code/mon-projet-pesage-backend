@@ -9,6 +9,12 @@ const router = express.Router();
 // Importe les fonctions du contrôleur
 const produitController = require('../controllers/produitController');
 
+// Importe le middleware d'authentification
+const { authenticateToken } = require('../middleware/auth');
+
+// Applique l'authentification à toutes les routes
+router.use(authenticateToken);
+
 // ============================
 // ROUTES CRUD COMPLETES
 // ============================
