@@ -83,12 +83,27 @@ class Pesage {
 
   /**
    * Formate la date pour l'affichage
-   * @returns {string} Date formatée (JJ/MM/AAAA)
+   * @returns {string} Date formatée (DD/M/YY ou DD/MM/YYYY selon le format original)
    */
   formatDate() {
     if (!this.date_pesage) return '';
+    
+    // Si la date est déjà au format DD/M/YY ou DD/MM/YYYY, la retourner telle quelle
+    if (typeof this.date_pesage === 'string' && this.date_pesage.includes('/')) {
+      return this.date_pesage;
+    }
+    
+    // Sinon, convertir depuis YYYY-MM-DD
     const date = new Date(this.date_pesage);
-    return date.toLocaleDateString('fr-FR');
+    if (isNaN(date.getTime())) {
+      return this.date_pesage; // Retourner tel quel si pas une date valide
+    }
+    
+    // Format DD/M/YY (comme dans les fichiers Excel réels)
+    const day = date.getDate();
+    const month = date.getMonth() + 1;
+    const year = date.getFullYear().toString().slice(-2);
+    return `${day}/${month}/${year}`;
   }
 
   /**

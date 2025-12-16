@@ -16,6 +16,7 @@ const { testConnection } = require('./src/config/database');
 const categorieRoutes = require('./src/routes/categorieRoutes');
 const produitRoutes = require('./src/routes/produitRoutes');
 const pesageRoutes = require('./src/routes/pesageRoutes');
+const simulationRoutes = require('./src/routes/simulationRoutes');
 
 // Fonction pour obtenir l'IP - AJOUTE CECI
 const os = require('os');
@@ -144,6 +145,7 @@ app.get('/health', (req, res) => {
 app.use('/api/categories', categorieRoutes);
 app.use('/api/produits', produitRoutes);
 app.use('/api/pesages', pesageRoutes);
+app.use('/api/simulation', simulationRoutes);
 
 // 5. GESTION DES ERREURS 404
 // ---------------------------

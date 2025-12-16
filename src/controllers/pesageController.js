@@ -40,6 +40,17 @@ const getAllPesages = async (req, res) => {
       pesageJSON.nombre_camions = row.nombre_camions;
       pesageJSON.tonnage = row.tonnage;
       
+      // Ajoute les nouvelles colonnes de simulation (si présentes)
+      if (row.type_pesage !== undefined) pesageJSON.type_pesage = row.type_pesage;
+      if (row.premier_pesage !== undefined) pesageJSON.premier_pesage = row.premier_pesage;
+      if (row.deuxieme_pesage !== undefined) pesageJSON.deuxieme_pesage = row.deuxieme_pesage;
+      if (row.statut !== undefined) pesageJSON.statut = row.statut;
+      if (row.heure_premier_pesage !== undefined) pesageJSON.heure_premier_pesage = row.heure_premier_pesage;
+      if (row.heure_deuxieme_pesage !== undefined) pesageJSON.heure_deuxieme_pesage = row.heure_deuxieme_pesage;
+      if (row.delai_zone !== undefined) pesageJSON.delai_zone = row.delai_zone;
+      if (row.client !== undefined) pesageJSON.client = row.client;
+      if (row.direction !== undefined) pesageJSON.direction = row.direction;
+      
       return pesageJSON;
     });
     
