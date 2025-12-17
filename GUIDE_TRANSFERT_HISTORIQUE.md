@@ -113,3 +113,4 @@ Les logs du backend indiquent :
 - Le système crée automatiquement les entités manquantes (matricule, client, produit)
 
 
+

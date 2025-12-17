@@ -24,3 +24,5 @@ DEALLOCATE PREPARE stmt;
 SELECT 'Migration 002 terminée : ENUM statut mis à jour' AS resultat;
 
 
+
+
