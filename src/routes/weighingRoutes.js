@@ -358,8 +358,9 @@ router.post('/:id/complete', async (req, res) => {
       });
     }
     
-    // Générer le numéro de ticket
-    const ticketNumber = `TKT-${Date.now()}-${weighingId}`;
+    // Générer le numéro de ticket séquentiel
+    const { generateNextTicketNumber } = require('../utils/ticketGenerator');
+    const ticketNumber = await generateNextTicketNumber();
     
     // Finaliser le pesage
     await operationalPool.query(
@@ -411,6 +412,27 @@ router.post('/:id/complete', async (req, res) => {
     }
     
     console.log(`✅ Pesage ${weighingId} finalisé - Ticket: ${ticketNumber}`);
+    
+    // Transférer vers la base historique (asynchrone, ne bloque pas la réponse)
+    // Le service de transfert automatique s'en chargera aussi, mais on essaie immédiatement
+    const historicalTransferService = require('../services/historicalTransferService');
+    historicalTransferService.transferCompletedWeighing(weighingId)
+      .then(result => {
+        if (result.success) {
+          if (result.existing) {
+            console.log(`✅ [${weighingId}] Déjà présent dans l'historique`);
+          } else {
+            console.log(`✅ [${weighingId}] Transfert historique réussi (ID: ${result.historicalId})`);
+          }
+        } else {
+          console.warn(`⚠️  [${weighingId}] Échec transfert historique: ${result.message}`);
+          console.warn(`   Le service de transfert automatique réessayera dans quelques secondes`);
+        }
+      })
+      .catch(error => {
+        console.error(`❌ [${weighingId}] Erreur transfert historique:`, error.message);
+        console.warn(`   Le service de transfert automatique réessayera dans quelques secondes`);
+      });
     
     // Émettre événement WebSocket
     const { WeighingEvents } = require('../websocket/websocketServer');

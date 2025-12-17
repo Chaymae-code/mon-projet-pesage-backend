@@ -227,6 +227,16 @@ async function startServer() {
       console.log('💡 Exécutez la migration: backend/migrations/003_create_operational_database.sql');
     }
     
+    // Teste la connexion à la base historique (pesage_data)
+    console.log('🔌 Test de la connexion MySQL (historique pesage_data)...');
+    const { testHistoricalConnection } = require('./src/config/historicalDatabase');
+    const historicalConnected = await testHistoricalConnection();
+    
+    if (!historicalConnected) {
+      console.warn('⚠️  Base historique (pesage_data) non accessible');
+      console.log('💡 Assurez-vous que la base pesage_data existe et que le fichier PESAGE_data.sql a été importé');
+    }
+    
     // Créer le serveur HTTP
     const httpServer = http.createServer(app);
     
@@ -237,6 +247,11 @@ async function startServer() {
     const { startWorkflowSimulator } = require('./src/services/workflowSimulator');
     startWorkflowSimulator();
     console.log('✅ Service de simulation automatique démarré');
+    
+    // Démarrer le service de transfert automatique vers l'historique
+    const { startAutoTransferService } = require('./src/services/autoTransferService');
+    startAutoTransferService();
+    console.log('✅ Service de transfert automatique vers l\'historique démarré');
     
     // Démarrer le serveur HTTP
     httpServer.listen(PORT, '0.0.0.0', () => {  // ← '0.0.0.0' IMPORTANT !
@@ -270,14 +285,18 @@ async function startServer() {
 process.on('SIGINT', () => {
   console.log('\n🛑 Arrêt gracieux du serveur...');
   const { stopWorkflowSimulator } = require('./src/services/workflowSimulator');
+  const { stopAutoTransferService } = require('./src/services/autoTransferService');
   stopWorkflowSimulator();
+  stopAutoTransferService();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\n🛑 Signal SIGTERM reçu, arrêt...');
   const { stopWorkflowSimulator } = require('./src/services/workflowSimulator');
+  const { stopAutoTransferService } = require('./src/services/autoTransferService');
   stopWorkflowSimulator();
+  stopAutoTransferService();
   process.exit(0);
 });
 

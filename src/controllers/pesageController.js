@@ -1,9 +1,10 @@
 // ============================================
 // CONTRÔLEUR : PESAGE
 // ============================================
-// Gère toutes les opérations sur les pesages
+// Gère toutes les opérations sur les pesages historiques
+// Utilise la base pesage_data (historique)
 
-const { pool } = require('../config/database');
+const { historicalPool } = require('../config/historicalDatabase');
 const Pesage = require('../models/Pesage');
 
 /**
@@ -11,47 +12,52 @@ const Pesage = require('../models/Pesage');
  * GET /api/pesages
  */
 const getAllPesages = async (req, res) => {
-  console.log('📥 Demande: GET /api/pesages');
+  console.log('📥 Demande: GET /api/pesages (base historique)');
   
   try {
-    // Jointure avec produits et catégories
+    // Jointure avec matricules, clients et produits depuis pesage_data
     const query = `
       SELECT 
-        ps.*,
+        ps.id as id_pesage,
+        DATE_FORMAT(ps.date, '%Y-%m-%d') as date_pesage,
+        ps.heure,
+        ps.ticket,
+        ps.brut,
+        ps.tare,
+        ps.net,
+        m.code_matricule as camion,
+        c.nom_client,
         pr.nom_produit,
-        pr.nombre_camions,
-        pr.tonnage,
-        c.nom_categorie
+        pr.id as produit_id_historical,
+        ps.created_at,
+        ps.updated_at
       FROM pesages ps
-      LEFT JOIN produits pr ON ps.id_produit = pr.id_produit
-      LEFT JOIN categories c ON pr.id_categorie = c.id_categorie
-      ORDER BY ps.date_pesage DESC, ps.heure DESC
+      LEFT JOIN matricules m ON ps.matricule_id = m.id
+      LEFT JOIN clients c ON ps.client_id = c.id
+      LEFT JOIN produits pr ON ps.produit_id = pr.id
+      ORDER BY ps.date DESC, ps.heure DESC
     `;
     
-    const [rows] = await pool.query(query);
+    const [rows] = await historicalPool.query(query);
     
+    // Transformer les données pour correspondre au format attendu par le frontend
     const pesages = rows.map(row => {
-      const pesage = Pesage.fromDatabase(row);
-      const pesageJSON = pesage.toJSON();
-      
-      // Ajoute les informations supplémentaires
-      pesageJSON.nom_produit = row.nom_produit;
-      pesageJSON.nom_categorie = row.nom_categorie;
-      pesageJSON.nombre_camions = row.nombre_camions;
-      pesageJSON.tonnage = row.tonnage;
-      
-      // Ajoute les nouvelles colonnes de simulation (si présentes)
-      if (row.type_pesage !== undefined) pesageJSON.type_pesage = row.type_pesage;
-      if (row.premier_pesage !== undefined) pesageJSON.premier_pesage = row.premier_pesage;
-      if (row.deuxieme_pesage !== undefined) pesageJSON.deuxieme_pesage = row.deuxieme_pesage;
-      if (row.statut !== undefined) pesageJSON.statut = row.statut;
-      if (row.heure_premier_pesage !== undefined) pesageJSON.heure_premier_pesage = row.heure_premier_pesage;
-      if (row.heure_deuxieme_pesage !== undefined) pesageJSON.heure_deuxieme_pesage = row.heure_deuxieme_pesage;
-      if (row.delai_zone !== undefined) pesageJSON.delai_zone = row.delai_zone;
-      if (row.client !== undefined) pesageJSON.client = row.client;
-      if (row.direction !== undefined) pesageJSON.direction = row.direction;
-      
-      return pesageJSON;
+      return {
+        id_pesage: row.id_pesage,
+        id_produit: row.produit_id_historical,
+        date_pesage: row.date_pesage || null,
+        camion: row.camion || 'N/A',
+        heure: row.heure ? row.heure.substring(0, 8) : '00:00:00',
+        ticket: row.ticket || '',
+        tare: parseFloat(row.tare) || 0,
+        brut: parseFloat(row.brut) || 0,
+        net: parseFloat(row.net) || 0,
+        nom_produit: row.nom_produit || 'N/A',
+        nom_client: row.nom_client || 'N/A',
+        nom_categorie: null, // Pas de catégorie dans pesage_data
+        nombre_camions: null,
+        tonnage: null
+      };
     });
     
     res.json({
@@ -60,7 +66,7 @@ const getAllPesages = async (req, res) => {
       data: pesages
     });
     
-    console.log(`✅ Réponse: ${pesages.length} pesages trouvés`);
+    console.log(`✅ Réponse: ${pesages.length} pesages trouvés dans l'historique`);
     
   } catch (error) {
     console.error('❌ Erreur getAllPesages:', error);
@@ -78,23 +84,32 @@ const getAllPesages = async (req, res) => {
  */
 const getPesageById = async (req, res) => {
   const pesageId = req.params.id;
-  console.log(`📥 Demande: GET /api/pesages/${pesageId}`);
+  console.log(`📥 Demande: GET /api/pesages/${pesageId} (base historique)`);
   
   try {
     const query = `
       SELECT 
-        ps.*,
+        ps.id as id_pesage,
+        DATE_FORMAT(ps.date, '%Y-%m-%d') as date_pesage,
+        ps.heure,
+        ps.ticket,
+        ps.brut,
+        ps.tare,
+        ps.net,
+        m.code_matricule as camion,
+        c.nom_client,
         pr.nom_produit,
-        pr.nombre_camions,
-        pr.tonnage,
-        c.nom_categorie
+        pr.id as produit_id_historical,
+        ps.created_at,
+        ps.updated_at
       FROM pesages ps
-      LEFT JOIN produits pr ON ps.id_produit = pr.id_produit
-      LEFT JOIN categories c ON pr.id_categorie = c.id_categorie
-      WHERE ps.id_pesage = ?
+      LEFT JOIN matricules m ON ps.matricule_id = m.id
+      LEFT JOIN clients c ON ps.client_id = c.id
+      LEFT JOIN produits pr ON ps.produit_id = pr.id
+      WHERE ps.id = ?
     `;
     
-    const [rows] = await pool.query(query, [pesageId]);
+    const [rows] = await historicalPool.query(query, [pesageId]);
     
     if (rows.length === 0) {
       return res.status(404).json({
@@ -103,20 +118,30 @@ const getPesageById = async (req, res) => {
       });
     }
     
-    const pesage = Pesage.fromDatabase(rows[0]);
-    const pesageJSON = pesage.toJSON();
-    
-    pesageJSON.nom_produit = rows[0].nom_produit;
-    pesageJSON.nom_categorie = rows[0].nom_categorie;
-    pesageJSON.nombre_camions = rows[0].nombre_camions;
-    pesageJSON.tonnage = rows[0].tonnage;
+    const row = rows[0];
+    const pesageJSON = {
+      id_pesage: row.id_pesage,
+      id_produit: row.produit_id_historical,
+      date_pesage: row.date_pesage || null,
+      camion: row.camion || 'N/A',
+      heure: row.heure ? row.heure.substring(0, 8) : '00:00:00',
+      ticket: row.ticket || '',
+      tare: parseFloat(row.tare) || 0,
+      brut: parseFloat(row.brut) || 0,
+      net: parseFloat(row.net) || 0,
+      nom_produit: row.nom_produit || 'N/A',
+      nom_client: row.nom_client || 'N/A',
+      nom_categorie: null,
+      nombre_camions: null,
+      tonnage: null
+    };
     
     res.json({
       success: true,
       data: pesageJSON
     });
     
-    console.log(`✅ Pesage ${pesageId} trouvé`);
+    console.log(`✅ Pesage ${pesageId} trouvé dans l'historique`);
     
   } catch (error) {
     console.error(`❌ Erreur getPesageById ${pesageId}:`, error);
@@ -131,273 +156,50 @@ const getPesageById = async (req, res) => {
 /**
  * Crée un nouveau pesage
  * POST /api/pesages
+ * NOTE: Les pesages sont normalement créés automatiquement via le transfert historique
+ * Cette fonction est conservée pour compatibilité mais devrait rarement être utilisée
  */
 const createPesage = async (req, res) => {
-  console.log('📥 Demande: POST /api/pesages');
+  console.log('📥 Demande: POST /api/pesages (base historique)');
+  console.log('⚠️  ATTENTION: Les pesages doivent être créés via le transfert automatique');
   console.log('📦 Données reçues:', req.body);
   
-  try {
-    const { 
-      id_produit, 
-      date_pesage, 
-      camion, 
-      heure, 
-      ticket, 
-      tare, 
-      brut, 
-      net 
-    } = req.body;
-    
-    // Validation de base
-    if (!id_produit) {
-      return res.status(400).json({
-        success: false,
-        message: 'Le produit est requis'
-      });
-    }
-    
-    if (!camion || camion.trim() === '') {
-      return res.status(400).json({
-        success: false,
-        message: 'Le numéro de camion est requis'
-      });
-    }
-    
-    // Vérifie que le produit existe
-    const [produitRows] = await pool.query(
-      'SELECT * FROM produits WHERE id_produit = ?',
-      [id_produit]
-    );
-    
-    if (produitRows.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Le produit avec ID ${id_produit} n'existe pas`
-      });
-    }
-    
-    // Calcule le net si non fourni
-    let poidsNet = net;
-    if (poidsNet === undefined && tare !== undefined && brut !== undefined) {
-      const pesageTemp = new Pesage(null, id_produit, date_pesage, camion, heure, ticket, tare, brut);
-      poidsNet = pesageTemp.calculateNet();
-    }
-    
-    // 1. Insère dans la base
-    const [result] = await pool.query(
-      `INSERT INTO pesages 
-       (id_produit, date_pesage, camion, heure, ticket, tare, brut, net) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id_produit,
-        date_pesage || new Date().toISOString().split('T')[0],
-        camion.trim(),
-        heure || new Date().toTimeString().split(' ')[0].slice(0, 8),
-        ticket || '',
-        tare || 0.0,
-        brut || 0.0,
-        poidsNet || 0.0
-      ]
-    );
-    
-    // 2. Récupère le pesage créé avec les infos du produit
-    const query = `
-      SELECT 
-        ps.*,
-        pr.nom_produit,
-        pr.nombre_camions,
-        pr.tonnage,
-        c.nom_categorie
-      FROM pesages ps
-      LEFT JOIN produits pr ON ps.id_produit = pr.id_produit
-      LEFT JOIN categories c ON pr.id_categorie = c.id_categorie
-      WHERE ps.id_pesage = ?
-    `;
-    
-    const [newRows] = await pool.query(query, [result.insertId]);
-    
-    const newPesage = Pesage.fromDatabase(newRows[0]);
-    const pesageJSON = newPesage.toJSON();
-    
-    pesageJSON.nom_produit = newRows[0].nom_produit;
-    pesageJSON.nom_categorie = newRows[0].nom_categorie;
-    pesageJSON.nombre_camions = newRows[0].nombre_camions;
-    pesageJSON.tonnage = newRows[0].tonnage;
-    
-    // 3. Renvoie la réponse
-    res.status(201).json({
-      success: true,
-      message: 'Pesage créé avec succès',
-      data: pesageJSON
-    });
-    
-    console.log(`✅ Pesage créé avec ID: ${result.insertId}`);
-    
-  } catch (error) {
-    console.error('❌ Erreur createPesage:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors de la création',
-      error: error.message
-    });
-  }
+  return res.status(400).json({
+    success: false,
+    message: 'Les pesages historiques sont créés automatiquement lors de la finalisation. Utilisez le workflow de pesage opérationnel.'
+  });
 };
 
 /**
  * Met à jour un pesage existant
  * PUT /api/pesages/:id
+ * NOTE: Les pesages historiques sont normalement en lecture seule
  */
 const updatePesage = async (req, res) => {
   const pesageId = req.params.id;
-  console.log(`📥 Demande: PUT /api/pesages/${pesageId}`);
-  console.log('📦 Données reçues:', req.body);
+  console.log(`📥 Demande: PUT /api/pesages/${pesageId} (base historique)`);
+  console.log('⚠️  ATTENTION: Les pesages historiques sont normalement en lecture seule');
   
-  try {
-    // Vérifie si le pesage existe
-    const [existingRows] = await pool.query(
-      'SELECT * FROM pesages WHERE id_pesage = ?',
-      [pesageId]
-    );
-    
-    if (existingRows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: `Pesage avec ID ${pesageId} non trouvé`
-      });
-    }
-    
-    const updates = req.body;
-    
-    // Si on veut changer le produit, vérifie qu'il existe
-    if (updates.id_produit) {
-      const [produitRows] = await pool.query(
-        'SELECT * FROM produits WHERE id_produit = ?',
-        [updates.id_produit]
-      );
-      
-      if (produitRows.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Le produit avec ID ${updates.id_produit} n'existe pas`
-        });
-      }
-    }
-    
-    // Recalcule le net si tare ou brut sont modifiés
-    if (updates.tare !== undefined || updates.brut !== undefined) {
-      const existing = existingRows[0];
-      const newTare = updates.tare !== undefined ? updates.tare : existing.tare;
-      const newBrut = updates.brut !== undefined ? updates.brut : existing.brut;
-      
-      const pesageTemp = new Pesage(null, null, null, null, null, null, newTare, newBrut);
-      updates.net = pesageTemp.calculateNet();
-    }
-    
-    // Construit la requête dynamiquement
-    const fields = Object.keys(updates);
-    
-    if (fields.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Aucune donnée à mettre à jour'
-      });
-    }
-    
-    const setClause = fields.map(field => `${field} = ?`).join(', ');
-    const values = fields.map(field => updates[field]);
-    values.push(pesageId);
-    
-    // Met à jour dans la base
-    await pool.query(
-      `UPDATE pesages SET ${setClause} WHERE id_pesage = ?`,
-      values
-    );
-    
-    // Récupère le pesage mis à jour
-    const query = `
-      SELECT 
-        ps.*,
-        pr.nom_produit,
-        pr.nombre_camions,
-        pr.tonnage,
-        c.nom_categorie
-      FROM pesages ps
-      LEFT JOIN produits pr ON ps.id_produit = pr.id_produit
-      LEFT JOIN categories c ON pr.id_categorie = c.id_categorie
-      WHERE ps.id_pesage = ?
-    `;
-    
-    const [updatedRows] = await pool.query(query, [pesageId]);
-    
-    const updatedPesage = Pesage.fromDatabase(updatedRows[0]);
-    const pesageJSON = updatedPesage.toJSON();
-    
-    pesageJSON.nom_produit = updatedRows[0].nom_produit;
-    pesageJSON.nom_categorie = updatedRows[0].nom_categorie;
-    pesageJSON.nombre_camions = updatedRows[0].nombre_camions;
-    pesageJSON.tonnage = updatedRows[0].tonnage;
-    
-    res.json({
-      success: true,
-      message: 'Pesage mis à jour avec succès',
-      data: pesageJSON
-    });
-    
-    console.log(`✅ Pesage ${pesageId} mis à jour`);
-    
-  } catch (error) {
-    console.error(`❌ Erreur updatePesage ${pesageId}:`, error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors de la mise à jour',
-      error: error.message
-    });
-  }
+  return res.status(400).json({
+    success: false,
+    message: 'Les pesages historiques sont en lecture seule. Modifiez les pesages dans le workflow opérationnel.'
+  });
 };
 
 /**
  * Supprime un pesage
  * DELETE /api/pesages/:id
+ * NOTE: Les pesages historiques sont normalement en lecture seule
  */
 const deletePesage = async (req, res) => {
   const pesageId = req.params.id;
-  console.log(`📥 Demande: DELETE /api/pesages/${pesageId}`);
+  console.log(`📥 Demande: DELETE /api/pesages/${pesageId} (base historique)`);
+  console.log('⚠️  ATTENTION: Les pesages historiques sont normalement en lecture seule');
   
-  try {
-    // Vérifie si le pesage existe
-    const [existingRows] = await pool.query(
-      'SELECT * FROM pesages WHERE id_pesage = ?',
-      [pesageId]
-    );
-    
-    if (existingRows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: `Pesage avec ID ${pesageId} non trouvé`
-      });
-    }
-    
-    // Supprime le pesage
-    await pool.query(
-      'DELETE FROM pesages WHERE id_pesage = ?',
-      [pesageId]
-    );
-    
-    res.json({
-      success: true,
-      message: 'Pesage supprimé avec succès'
-    });
-    
-    console.log(`✅ Pesage ${pesageId} supprimé`);
-    
-  } catch (error) {
-    console.error(`❌ Erreur deletePesage ${pesageId}:`, error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors de la suppression',
-      error: error.message
-    });
-  }
+  return res.status(400).json({
+    success: false,
+    message: 'Les pesages historiques sont en lecture seule et ne peuvent pas être supprimés.'
+  });
 };
 
 /**
@@ -405,59 +207,60 @@ const deletePesage = async (req, res) => {
  * GET /api/pesages/stats
  */
 const getStats = async (req, res) => {
-  console.log('📥 Demande: GET /api/pesages/stats');
+  console.log('📥 Demande: GET /api/pesages/stats (base historique)');
   
   try {
     // Statistiques générales
-    const [generalStats] = await pool.query(`
+    const [generalStats] = await historicalPool.query(`
       SELECT 
         COUNT(*) as total_pesages,
-        SUM(net) as total_net,
-        AVG(net) as moyenne_net,
-        MIN(date_pesage) as date_debut,
-        MAX(date_pesage) as date_fin,
-        COUNT(DISTINCT camion) as camions_distincts,
-        COUNT(DISTINCT id_produit) as produits_distincts
-      FROM pesages
-      WHERE net > 0
+        SUM(ps.net) as total_net,
+        AVG(ps.net) as moyenne_net,
+        MIN(ps.date) as date_debut,
+        MAX(ps.date) as date_fin,
+        COUNT(DISTINCT ps.matricule_id) as camions_distincts,
+        COUNT(DISTINCT ps.produit_id) as produits_distincts
+      FROM pesages ps
+      WHERE ps.net > 0
     `);
     
     // Statistiques par jour (7 derniers jours)
-    const [dailyStats] = await pool.query(`
+    const [dailyStats] = await historicalPool.query(`
       SELECT 
-        date_pesage,
+        ps.date as date_pesage,
         COUNT(*) as nb_pesages,
-        SUM(net) as total_net_jour
-      FROM pesages
-      WHERE date_pesage IS NOT NULL
-      GROUP BY date_pesage
-      ORDER BY date_pesage DESC
+        SUM(ps.net) as total_net_jour
+      FROM pesages ps
+      WHERE ps.date IS NOT NULL
+      GROUP BY ps.date
+      ORDER BY ps.date DESC
       LIMIT 7
     `);
     
     // Statistiques par produit
-    const [produitsStats] = await pool.query(`
+    const [produitsStats] = await historicalPool.query(`
       SELECT 
         pr.nom_produit,
-        pr.id_produit,
+        pr.id as id_produit,
         COUNT(*) as nb_pesages,
         SUM(ps.net) as total_net
       FROM pesages ps
-      LEFT JOIN produits pr ON ps.id_produit = pr.id_produit
+      LEFT JOIN produits pr ON ps.produit_id = pr.id
       WHERE ps.net > 0
-      GROUP BY pr.id_produit, pr.nom_produit
+      GROUP BY pr.id, pr.nom_produit
       ORDER BY total_net DESC
     `);
     
     // Top 5 camions
-    const [camionsStats] = await pool.query(`
+    const [camionsStats] = await historicalPool.query(`
       SELECT 
-        camion,
+        m.code_matricule as camion,
         COUNT(*) as nb_pesages,
-        SUM(net) as total_net
-      FROM pesages
-      WHERE camion IS NOT NULL AND camion != ''
-      GROUP BY camion
+        SUM(ps.net) as total_net
+      FROM pesages ps
+      LEFT JOIN matricules m ON ps.matricule_id = m.id
+      WHERE m.code_matricule IS NOT NULL AND m.code_matricule != ''
+      GROUP BY m.code_matricule
       ORDER BY total_net DESC
       LIMIT 5
     `);
@@ -472,7 +275,7 @@ const getStats = async (req, res) => {
       }
     });
     
-    console.log('✅ Statistiques générées');
+    console.log('✅ Statistiques générées depuis l\'historique');
     
   } catch (error) {
     console.error('❌ Erreur getStats:', error);
