@@ -137,3 +137,4 @@ console.log(`\n${'='.repeat(80)}`);
 console.log('✅ Analyse terminée');
 console.log('='.repeat(80));
 
+

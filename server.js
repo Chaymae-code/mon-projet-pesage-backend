@@ -17,6 +17,10 @@ const categorieRoutes = require('./src/routes/categorieRoutes');
 const produitRoutes = require('./src/routes/produitRoutes');
 const pesageRoutes = require('./src/routes/pesageRoutes');
 const simulationRoutes = require('./src/routes/simulationRoutes');
+// Nouvelles routes pour workflow industriel avec OpenCV
+const truckRoutes = require('./src/routes/truckRoutes');
+const weighingRoutes = require('./src/routes/weighingRoutes');
+const planningRoutes = require('./src/routes/planningRoutes');
 
 // Fonction pour obtenir l'IP - AJOUTE CECI
 const os = require('os');
@@ -146,6 +150,10 @@ app.use('/api/categories', categorieRoutes);
 app.use('/api/produits', produitRoutes);
 app.use('/api/pesages', pesageRoutes);
 app.use('/api/simulation', simulationRoutes);
+// Nouvelles routes workflow industriel
+app.use('/api/trucks', truckRoutes);
+app.use('/api/weighings', weighingRoutes);
+app.use('/api/planning', planningRoutes);
 
 // 5. GESTION DES ERREURS 404
 // ---------------------------
@@ -176,6 +184,13 @@ app.use((err, req, res, next) => {
   });
 });
 
+// ============================================
+// IMPORT WEBSOCKET
+// ============================================
+const http = require('http');
+const { initializeWebSocket } = require('./src/websocket/websocketServer');
+const { testOperationalConnection } = require('./src/config/operationalDatabase');
+
 // 7. DÉMARRAGE DU SERVEUR
 // ------------------------
 async function startServer() {
@@ -184,16 +199,17 @@ async function startServer() {
   console.log(`   Port: ${PORT}`);
   console.log(`   Frontend: ${process.env.FRONTEND_URL}`);
   console.log(`   Base de données: ${process.env.DB_NAME}`);
+  console.log(`   Base opérationnelle: ${process.env.DB_OPERATIONAL_NAME || 'pesage_operational'}`);
   console.log(`   Node.js: ${process.version}`);
   console.log(`   Express: ${require('express/package.json').version}`);
   
   try {
-    // Teste la connexion à la base de données
-    console.log('🔌 Test de la connexion MySQL...');
+    // Teste la connexion à la base de données historique
+    console.log('🔌 Test de la connexion MySQL (historique)...');
     const dbConnected = await testConnection();
     
     if (!dbConnected) {
-      console.error('❌ Impossible de se connecter à la base de données');
+      console.error('❌ Impossible de se connecter à la base de données historique');
       console.log('💡 Astuces:');
       console.log('   1. Vérifie que MySQL est démarré');
       console.log('   2. Vérifie les identifiants dans le fichier .env');
@@ -202,8 +218,28 @@ async function startServer() {
       process.exit(1);
     }
     
-    // Démarrer le serveur sur TOUTES les interfaces
-    app.listen(PORT, '0.0.0.0', () => {  // ← '0.0.0.0' IMPORTANT !
+    // Teste la connexion à la base opérationnelle
+    console.log('🔌 Test de la connexion MySQL (opérationnelle)...');
+    const operationalConnected = await testOperationalConnection();
+    
+    if (!operationalConnected) {
+      console.warn('⚠️ Base opérationnelle non accessible');
+      console.log('💡 Exécutez la migration: backend/migrations/003_create_operational_database.sql');
+    }
+    
+    // Créer le serveur HTTP
+    const httpServer = http.createServer(app);
+    
+    // Initialiser WebSocket AVANT de démarrer le serveur
+    initializeWebSocket(httpServer);
+    
+    // Démarrer le service de simulation automatique
+    const { startWorkflowSimulator } = require('./src/services/workflowSimulator');
+    startWorkflowSimulator();
+    console.log('✅ Service de simulation automatique démarré');
+    
+    // Démarrer le serveur HTTP
+    httpServer.listen(PORT, '0.0.0.0', () => {  // ← '0.0.0.0' IMPORTANT !
       console.log('='.repeat(50));
       console.log(`✅ SERVEUR DÉMARRÉ AVEC SUCCÈS !`);
       console.log('='.repeat(50));
@@ -215,7 +251,8 @@ async function startServer() {
       console.log('📚 Endpoints à partager :');
       console.log(`   → GET  http://10.24.144.46:${PORT}/health`);  // ← CHANGÉ ICI
       console.log(`   → GET  http://10.24.144.46:${PORT}/api/pesages`);  // ← CHANGÉ ICI
-      console.log(`   → POST http://10.24.144.46:${PORT}/api/pesages`);  // ← CHANGÉ ICI
+      console.log(`   → POST http://10.24.144.46:${PORT}/api/trucks/detect`);  // ← NOUVEAU
+      console.log(`   → GET  http://10.24.144.46:${PORT}/api/weighings/active`);  // ← NOUVEAU
       console.log('='.repeat(50));
       console.log('🤝 Partage cette info avec ton coéquipier :');
       console.log(`   URL Backend: http://10.24.144.46:${PORT}`);  // ← CHANGÉ ICI
@@ -232,11 +269,15 @@ async function startServer() {
 // -----------------------------
 process.on('SIGINT', () => {
   console.log('\n🛑 Arrêt gracieux du serveur...');
+  const { stopWorkflowSimulator } = require('./src/services/workflowSimulator');
+  stopWorkflowSimulator();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\n🛑 Signal SIGTERM reçu, arrêt...');
+  const { stopWorkflowSimulator } = require('./src/services/workflowSimulator');
+  stopWorkflowSimulator();
   process.exit(0);
 });
 
